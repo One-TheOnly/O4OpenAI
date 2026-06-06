@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 
@@ -117,14 +118,32 @@ func (h *ImageHandler) HandleGenerate(c *gin.Context) {
 func (h *ImageHandler) HandleEdit(c *gin.Context) {
 	contentType := c.GetHeader("Content-Type")
 
+	h.logger.Info("HandleEdit received request",
+		zap.String("content_type", contentType),
+	)
+
 	var req model.ImageEditRequest
 	var err error
 
 	if strings.HasPrefix(contentType, "multipart/form-data") {
+		h.logger.Info("HandleEdit: using multipart parser")
 		err = h.parseMultipartEdit(c, &req)
 	} else {
+		h.logger.Info("HandleEdit: using JSON parser")
 		err = c.ShouldBindJSON(&req)
 	}
+
+	h.logger.Info("HandleEdit: parsed request",
+		zap.String("model", req.Model),
+		zap.Bool("has_image", req.Image != ""),
+		zap.Int("images_count", len(req.Images)),
+		zap.String("image_preview", func() string {
+			if len(req.Image) > 100 {
+				return req.Image[:100] + "..."
+			}
+			return req.Image
+		}()),
+	)
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{
@@ -280,9 +299,40 @@ func (h *ImageHandler) parseMultipartGenerate(c *gin.Context, req *model.ImageGe
 // When multiple files are provided under the "image" key, all are collected
 // into req.Images for downstream multi-image processing (e.g. ArcReel SDK).
 func (h *ImageHandler) parseMultipartEdit(c *gin.Context, req *model.ImageEditRequest) error {
+	contentType := c.GetHeader("Content-Type")
+	h.logger.Info("parseMultipartEdit called",
+		zap.String("content_type", contentType),
+	)
+
 	form, err := c.MultipartForm()
 	if err != nil {
 		return err
+	}
+
+	// Debug: log all form fields
+	for key, vals := range form.Value {
+		for i, v := range vals {
+			preview := v
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			h.logger.Info("form value field",
+				zap.String("key", key),
+				zap.Int("index", i),
+				zap.Int("total_len", len(v)),
+				zap.String("preview", preview),
+			)
+		}
+	}
+	for key, files := range form.File {
+		for i, f := range files {
+			h.logger.Info("form file field",
+				zap.String("key", key),
+				zap.Int("index", i),
+				zap.String("filename", f.Filename),
+				zap.Int64("size", f.Size),
+			)
+		}
 	}
 
 	if values := form.Value["model"]; len(values) > 0 {
@@ -306,42 +356,10 @@ func (h *ImageHandler) parseMultipartEdit(c *gin.Context, req *model.ImageEditRe
 		req.Quality = values[0]
 	}
 
-	// Parse image file uploads — support multiple images (up to 16)
-	if files := form.File["image"]; len(files) > 0 {
-		if len(files) > 16 {
-			return fmt.Errorf("too many images: maximum 16 allowed, got %d", len(files))
-		}
-		if len(files) == 1 {
-			// Single file: backward-compatible path
-			file, err := files[0].Open()
-			if err != nil {
-				return fmt.Errorf("failed to open image file: %w", err)
-			}
-			defer file.Close()
-			data, err := io.ReadAll(file)
-			if err != nil {
-				return fmt.Errorf("failed to read image file: %w", err)
-			}
-			req.Image = encodeToBase64String(data)
-		} else {
-			// Multiple files: populate Images slice
-			images := make([]string, 0, len(files))
-			for i, fh := range files {
-				file, err := fh.Open()
-				if err != nil {
-					return fmt.Errorf("failed to open image file %d: %w", i, err)
-				}
-				data, err := io.ReadAll(file)
-				file.Close()
-				if err != nil {
-					return fmt.Errorf("failed to read image file %d: %w", i, err)
-				}
-				images = append(images, encodeToBase64String(data))
-			}
-			req.Images = images
-			// Also set Image to the first for any code that only checks Image
-			req.Image = images[0]
-		}
+	// Parse image inputs — support multiple field names and both file/value types.
+	// OpenAI Python SDK with multiple images uses "image[]"; other SDKs use "image".
+	if err := h.collectImageInputs(form, req); err != nil {
+		return err
 	}
 
 	if files := form.File["mask"]; len(files) > 0 {
@@ -393,6 +411,80 @@ func (h *ImageHandler) parseMultipartVariation(c *gin.Context, req *model.ImageV
 			return fmt.Errorf("failed to read image file: %w", err)
 		}
 		req.Image = encodeToBase64String(data)
+	}
+
+	return nil
+}
+
+// collectImageInputs populates req.Image / req.Images from the multipart form.
+// It supports multiple field names ("image", "image[]") and both file uploads
+// (form.File) and text fields (form.Value) carrying URLs or base64 strings.
+// OpenAI Python SDK uses "image[]" for multi-image uploads; some other SDKs
+// (e.g. ArcReel) use plain "image".
+func (h *ImageHandler) collectImageInputs(form *multipart.Form, req *model.ImageEditRequest) error {
+	// Try file uploads first (the OpenAI standard).
+	// Check both "image" and "image[]" field names.
+	var files []*multipart.FileHeader
+	for _, key := range []string{"image", "image[]"} {
+		if f := form.File[key]; len(f) > 0 {
+			files = f
+			break
+		}
+	}
+
+	if len(files) > 0 {
+		if len(files) > 16 {
+			return fmt.Errorf("too many images: maximum 16 allowed, got %d", len(files))
+		}
+		if len(files) == 1 {
+			// Single file: backward-compatible path
+			file, err := files[0].Open()
+			if err != nil {
+				return fmt.Errorf("failed to open image file: %w", err)
+			}
+			defer file.Close()
+			data, err := io.ReadAll(file)
+			if err != nil {
+				return fmt.Errorf("failed to read image file: %w", err)
+			}
+			req.Image = encodeToBase64String(data)
+			return nil
+		}
+		// Multiple files: populate Images slice
+		images := make([]string, 0, len(files))
+		for i, fh := range files {
+			file, err := fh.Open()
+			if err != nil {
+				return fmt.Errorf("failed to open image file %d: %w", i, err)
+			}
+			data, err := io.ReadAll(file)
+			file.Close()
+			if err != nil {
+				return fmt.Errorf("failed to read image file %d: %w", i, err)
+			}
+			images = append(images, encodeToBase64String(data))
+		}
+		req.Images = images
+		// Also set Image to the first for any code that only checks Image
+		req.Image = images[0]
+		return nil
+	}
+
+	// Fall back to text fields (URL or base64 string), again checking both names.
+	var values []string
+	for _, key := range []string{"image", "image[]"} {
+		if v := form.Value[key]; len(v) > 0 {
+			values = v
+			break
+		}
+	}
+	if len(values) > 0 {
+		if len(values) == 1 {
+			req.Image = values[0]
+		} else {
+			req.Images = values
+			req.Image = values[0]
+		}
 	}
 
 	return nil

@@ -43,7 +43,7 @@
 | **图生图** `/v1/images/edits` | 公网 URL | 透传 | URL 原样 |
 | | `data:image/png;base64,...` | 转为临时 URL | `http://<gateway>/_temp/images/<hash>` |
 | | 纯 base64 | 自动包装为 Data URI，再转为临时 URL | `http://<gateway>/_temp/images/<hash>` |
-| **图生视频** `/v1/videos/generations` | 公网 URL | 透传 | URL 原样 |
+| **图生视频** `/v1/videos`（也支持 `/v1/videos/generations`） | 公网 URL | 透传 | URL 原样 |
 | | `data:image/png;base64,...` | **存为本地临时文件** | `http://<gateway>/_temp/images/<hash>` |
 | | 纯 base64 | **先包装为 Data URI，再存为临时文件** | `http://<gateway>/_temp/images/<hash>` |
 
@@ -324,16 +324,16 @@ Content-Type: application/json
 
 ## 5. Video Generation（异步）
 
-### POST /v1/videos/generations
+### POST /v1/videos
 
-OpenAI 的视频 API 是**异步任务**模式：先创建任务拿到 ID，再轮询。
+OpenAI 的视频 API 是**异步任务**模式：先创建任务拿到 ID，再轮询。网关同时支持 `/v1/videos/generations` 作为向后兼容的别名。
 
 #### 5.1 文生视频（T2V）
 
 **客户端 → 网关**
 
 ```http
-POST /v1/videos/generations HTTP/1.1
+POST /v1/videos HTTP/1.1
 Content-Type: application/json
 
 {
@@ -348,7 +348,7 @@ Content-Type: application/json
 
 | 字段 | OpenAI 标准 | Agnes 实际 |
 |------|------------|----------|
-| 端点 | `POST /v1/videos/generations` | `POST /v1/videos` |
+| 端点 | `POST /v1/videos`（也支持 `/v1/videos/generations` 向后兼容） | `POST /v1/videos` |
 | 文本输入 | `input: [{type: "text", text: "..."}]` | `prompt: "..."` |
 | 图片输入 | `input: [{type: "image", image: "url/data-uri"}]` | 单图：顶层 `image: "..."`；多图：`extra_body.image: ["...", "..."]` |
 | 时长控制 | `duration: "5s"`、`resolution: "..."` | `num_frames: 121`, `frame_rate: 24`, `width: 1152`, `height: 768` |
@@ -598,7 +598,7 @@ Location: https://storage.googleapis.com/.../video.mp4
 
 #### Multipart 表单支持（视频生成）
 
-`POST /v1/videos/generations` 同时支持 `application/json` 和 `multipart/form-data` 两种 Content-Type。multipart 模式兼容 OpenAI Python SDK 的 `client.videos.create()` 方法。
+`POST /v1/videos`（和 `/v1/videos/generations`）同时支持 `application/json` 和 `multipart/form-data` 两种 Content-Type。multipart 模式兼容 OpenAI Python SDK 的 `client.videos.create()` 方法。
 
 **Multipart 字段映射**：
 

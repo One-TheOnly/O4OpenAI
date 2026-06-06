@@ -66,7 +66,8 @@ func registerAPIRoutes(rg *gin.RouterGroup, registry *provider.Registry, base64H
 	rg.POST("/images/variations", imageHandler.HandleVariation)
 
 	videoHandler := NewVideoHandler(registry, base64Handler, logger, forcedProvider)
-	rg.POST("/videos/generations", videoHandler.HandleGenerate)
+	rg.POST("/videos", videoHandler.HandleGenerate)             // OpenAI standard
+	rg.POST("/videos/generations", videoHandler.HandleGenerate) // backward-compat
 	rg.GET("/videos/:id", videoHandler.HandleRetrieve)
 	rg.GET("/videos/:id/content", videoHandler.HandleDownloadContent)
 

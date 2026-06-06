@@ -25,7 +25,7 @@
 | Image Generation | POST | `/v1/images/generations` | 文生图 |
 | Image Edit | POST | `/v1/images/edits` | 图生图（image + prompt） |
 | Image Variation | POST | `/v1/images/variations` | 图片变体（Agnes 暂未支持） |
-| Video Generation | POST | `/v1/videos/generations` | 异步任务：文生视频 / 图生视频 / 首尾帧 |
+| Video Generation | POST | `/v1/videos`（OpenAI 标准）或 `/v1/videos/generations` | 异步任务：文生视频 / 图生视频 / 首尾帧 |
 | Video Status | GET | `/v1/videos/:id` | 轮询视频任务状态 |
 | Video Download | GET | `/v1/videos/:id/content` | 下载视频文件（302 重定向到视频 URL） |
 | List Models | GET | `/v1/models` | 列出可用模型 |
@@ -189,7 +189,7 @@ curl http://localhost:1241/v1/images/edits \
 ### 5. 文生视频（异步）
 
 ```bash
-RESP=$(curl -s http://localhost:1241/v1/videos/generations \
+RESP=$(curl -s http://localhost:1241/v1/videos \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_AGNES_API_KEY" \
   -d '{
@@ -204,7 +204,7 @@ echo "Task ID: $TASK_ID"
 ### 6. 图生视频
 
 ```bash
-curl http://localhost:1241/v1/videos/generations \
+curl http://localhost:1241/v1/videos \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_AGNES_API_KEY" \
   -d '{
@@ -219,7 +219,7 @@ curl http://localhost:1241/v1/videos/generations \
 ### 7. 首尾帧生视频
 
 ```bash
-curl http://localhost:1241/v1/videos/generations \
+curl http://localhost:1241/v1/videos \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_AGNES_API_KEY" \
   -d '{
