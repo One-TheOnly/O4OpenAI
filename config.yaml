@@ -18,6 +18,7 @@ gateway:
 providers:
   agnes:
     base_url: "https://apihub.agnes-ai.com/v1"
+    api_key: ""    # Fallback key — 如果客户端没传 key 则用这个，留空则必须由客户端提供
     enabled: true
     models:
       - external_model: "agnes-1.5-flash"

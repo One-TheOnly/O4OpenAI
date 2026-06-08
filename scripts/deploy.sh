@@ -22,6 +22,8 @@ echo "Binary: $BINARY"
 echo "Size:   $(du -h "$BINARY" | cut -f1)"
 echo "SHA256: $(shasum -a 256 "$BINARY" | cut -d' ' -f1)"
 echo ""
+echo "Note: Copy chat.html alongside the binary for ChatBot UI (/chatbot)"
+echo ""
 
 # Optional: install to /usr/local/bin
 if [ "${INSTALL:-0}" = "1" ]; then

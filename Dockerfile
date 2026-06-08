@@ -16,6 +16,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 1000 app
 WORKDIR /app
 COPY --from=builder /out/o4openai /app/o4openai
+COPY chat.html /app/chat.html
 COPY config.yaml /app/config.yaml
 USER app
 EXPOSE 1241

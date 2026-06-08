@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,23 @@ import (
 	"github.com/o4openai/pkg/utils"
 	"go.uber.org/zap"
 )
+
+// loadChatHTML reads the chat.html UI file.
+// It looks in the executable's directory first, then falls back to the project root.
+func loadChatHTML() []byte {
+	exe, _ := os.Executable()
+	locations := []string{
+		filepath.Join(filepath.Dir(exe), "chat.html"),
+		"chat.html",
+		"../../chat.html", // when running via `go run ./cmd/server`
+	}
+	for _, p := range locations {
+		if data, err := os.ReadFile(p); err == nil {
+			return data
+		}
+	}
+	return nil
+}
 
 // newLogger returns a production-grade zap logger.
 // Key safety properties:
@@ -194,6 +212,20 @@ func main() {
 	// ★ 不需要认证中间件！客户端的 API Key 在 handler 层透传给 Provider
 	handler.SetupRouter(engine, registry, base64Handler, logger)
 
+	// ChatBot UI — serve chat.html at /chatbot
+	chatHTMLData := loadChatHTML()
+	if chatHTMLData != nil {
+		engine.GET("/chatbot", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", chatHTMLData)
+		})
+		engine.GET("/", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", chatHTMLData)
+		})
+		logger.Info("ChatBot UI available", zap.String("path", "/chatbot"))
+	} else {
+		logger.Warn("chat.html not found; ChatBot UI disabled")
+	}
+
 	printBanner(cfg, registry, logger)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -247,6 +279,7 @@ func printBanner(cfg *config.Config, registry *provider.Registry, logger *zap.Lo
 	fmt.Println()
 	fmt.Println("  Clients just change the base URL to switch providers:")
 	fmt.Printf("    base_url = \"http://localhost:%d\"       -> auto\n", cfg.Server.Port)
+	fmt.Printf("    ChatBot UI: http://localhost:%d/chatbot\n", cfg.Server.Port)
 	for _, name := range registry.GetAllProviders() {
 		fmt.Printf("    base_url = \"http://localhost:%d/%s\"    -> force %s\n", cfg.Server.Port, name, name)
 	}
