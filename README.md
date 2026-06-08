@@ -1,6 +1,6 @@
 # O4OpenAI - OpenAI / Anthropic Compatible API Gateway
 
-一个可扩展的 API 转换平台，对外同时提供 **OpenAI 兼容**和 **Anthropic Messages API 兼容**的接口，内部调用第三方大模型 API（目前已接入 Agnes AI）。
+一个可扩展的 API 转换平台，对外同时提供 **OpenAI 兼容**和 **Anthropic Messages API 兼容**的接口，内部调用第三方大模型 API（目前已接入 Agnes AI 和 Moark 模力方舟）。
 
 ## 特性
 
