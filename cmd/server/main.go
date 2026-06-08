@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/o4openai/internal/model"
 	"github.com/o4openai/internal/provider"
 	"github.com/o4openai/internal/provider/agnes"
+	"github.com/o4openai/internal/provider/moark"
 	"github.com/o4openai/pkg/utils"
 	"go.uber.org/zap"
 )
@@ -31,9 +33,9 @@ func newLogger() *zap.Logger {
 	cfg.EncoderConfig.LevelKey = "level"
 	cfg.EncoderConfig.CallerKey = "" // suppress caller (would expose local paths)
 	cfg.EncoderConfig.StacktraceKey = ""
-	cfg.DisableStacktrace = true      // never include stacktraces
+	cfg.DisableStacktrace = true // never include stacktraces
 	cfg.DisableCaller = true
-	cfg.Sampling = nil               // log every error
+	cfg.Sampling = nil // log every error
 	logger, _ := cfg.Build()
 	return logger
 }
@@ -77,6 +79,69 @@ func main() {
 
 	registry := provider.NewRegistry()
 
+	// fetchTimeout caps how long we'll wait for an upstream /v1/models
+	// round-trip at startup. 15s is plenty for any reasonable provider.
+	const fetchTimeout = 15 * time.Second
+
+	// resolveModelConfigs builds the model mapping list for a provider.
+	//   1. If the user pinned models in config.yaml, use that.
+	//   2. Otherwise, ask the provider to FetchModels() from upstream.
+	//   3. If that fails, fall back to the provider's hardcoded
+	//      SupportedModels() list. This keeps the server usable even
+	//      when the upstream is down at boot.
+	resolveModelConfigs := func(p model.Provider, pc config.ProviderConfig) []model.ModelMapping {
+		if len(pc.Models) > 0 {
+			out := make([]model.ModelMapping, 0, len(pc.Models))
+			for _, mc := range pc.Models {
+				out = append(out, model.ModelMapping{
+					ExternalModel: mc.ExternalModel,
+					ProviderModel: mc.ProviderModel,
+					Capabilities:  mc.Capabilities,
+				})
+			}
+			return out
+		}
+
+		// No explicit model list: try to fetch a live list from the provider.
+		logger.Info("No models pinned in config; fetching live model list",
+			zap.String("provider", p.Name()),
+		)
+		fctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		// If the provider was constructed with a fallback key, surface it
+		// in the context so FetchModels can authenticate.
+		fctx = utils.WithAPIKey(fctx, "")
+		ids, err := p.FetchModels(fctx)
+		cancel()
+		if err != nil || len(ids) == 0 {
+			if err != nil {
+				logger.Warn("FetchModels failed; falling back to SupportedModels()",
+					zap.String("provider", p.Name()),
+					zap.Error(err),
+				)
+			}
+			fallback := p.SupportedModels()
+			ids = make([]string, 0, len(fallback))
+			for _, m := range fallback {
+				ids = append(ids, m.ID)
+			}
+		}
+
+		out := make([]model.ModelMapping, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, model.ModelMapping{
+				ExternalModel: id,
+				ProviderModel: id,
+				// Capabilities left empty; the provider's Supports* methods
+				// are still consulted by the handler when picking a route.
+			})
+		}
+		logger.Info("Auto-discovered models from provider",
+			zap.String("provider", p.Name()),
+			zap.Int("count", len(out)),
+		)
+		return out
+	}
+
 	// Register providers
 	// ★ 不需要配置 API Key！客户端传什么 key，网关就透传给 Provider
 	for name, pc := range cfg.Providers {
@@ -89,23 +154,34 @@ func main() {
 		case "agnes":
 			p := agnes.NewProvider(pc.APIKey, pc.BaseURL, logger) // api_key 可选（作为 fallback）
 			mappings := make(map[string]string)
-			var modelConfigs []model.ModelMapping
 			for _, mc := range pc.Models {
 				mappings[mc.ExternalModel] = mc.ProviderModel
-				modelConfigs = append(modelConfigs, model.ModelMapping{
-					ExternalModel: mc.ExternalModel,
-					ProviderModel: mc.ProviderModel,
-					Capabilities:  mc.Capabilities,
-				})
 			}
 			p.SetModelMappings(mappings)
 			p.SetBase64Handler(base64Handler)
+			modelConfigs := resolveModelConfigs(p, pc)
 			if err := registry.Register(p, modelConfigs); err != nil {
 				logger.Fatal("Failed to register Agnes provider", zap.Error(err))
 			}
 			logger.Info("Registered Agnes AI provider",
 				zap.String("base_url", pc.BaseURL),
-				zap.Int("models", len(pc.Models)),
+				zap.Int("models", len(modelConfigs)),
+			)
+		case "moark":
+			p := moark.NewProvider(pc.APIKey, pc.BaseURL, logger) // api_key 可选（作为 fallback）
+			mappings := make(map[string]string)
+			for _, mc := range pc.Models {
+				mappings[mc.ExternalModel] = mc.ProviderModel
+			}
+			p.SetModelMappings(mappings)
+			p.SetBase64Handler(base64Handler)
+			modelConfigs := resolveModelConfigs(p, pc)
+			if err := registry.Register(p, modelConfigs); err != nil {
+				logger.Fatal("Failed to register Moark provider", zap.Error(err))
+			}
+			logger.Info("Registered Moark provider",
+				zap.String("base_url", pc.BaseURL),
+				zap.Int("models", len(modelConfigs)),
 			)
 		default:
 			logger.Warn("Unknown provider type, skipping", zap.String("provider", name))
@@ -137,39 +213,42 @@ func main() {
 }
 
 func printBanner(cfg *config.Config, registry *provider.Registry, logger *zap.Logger) {
-	fmt.Print(`
-╔══════════════════════════════════════════════════════════════╗
-║                    O4OpenAI API Gateway                      ║
-║              OpenAI-Compatible API Proxy Platform             ║
-╚══════════════════════════════════════════════════════════════╝
-`)
+	fmt.Println()
+	fmt.Println("  ============================================")
+	fmt.Println("       O4OpenAI API Gateway")
+	fmt.Println("       OpenAI-Compatible API Proxy Platform")
+	fmt.Println("  ============================================")
 	fmt.Printf("  Server:     http://%s:%d\n", cfg.Server.Host, cfg.Server.Port)
 	fmt.Printf("  Public URL: %s\n", cfg.Gateway.PublicURL)
-	fmt.Printf("  Providers:  %v\n", registry.GetAllProviders())
 
-	models := registry.ListModels()
-	fmt.Printf("  Models:     %d available\n", len(models))
-	for _, m := range models {
-		fmt.Printf("              - %s\n", m.ID)
+	totalModels := 0
+	for _, name := range registry.GetAllProviders() {
+		models := registry.ListModelsByProvider(name)
+		totalModels += len(models)
+		fmt.Printf("\n  [%s] %d models:\n", name, len(models))
+		for _, m := range models {
+			fmt.Printf("    - %s\n", m.ID)
+		}
 	}
+	fmt.Printf("\n  Total: %d models, %d providers\n", totalModels, len(registry.GetAllProviders()))
 
 	fmt.Println()
 	fmt.Println("  Routing:")
-	fmt.Println("    /v1/chat/completions              → auto (by model name)")
-	fmt.Println("    /v1/images/generations             → auto")
-	fmt.Println("    /v1/videos/generations             → auto")
-	fmt.Println("    /v1/messages                      → Anthropic Messages API")
+	fmt.Println("    /v1/chat/completions           -> auto (by model name)")
+	fmt.Println("    /v1/images/generations         -> auto")
+	fmt.Println("    /v1/videos/generations         -> auto")
+	fmt.Println("    /v1/messages                   -> Anthropic Messages API")
 	for _, name := range registry.GetAllProviders() {
-		fmt.Printf("    /%s/v1/chat/completions        → force %s\n", name, name)
-		fmt.Printf("    /%s/v1/images/generations      → force %s\n", name, name)
-		fmt.Printf("    /%s/v1/videos/generations      → force %s\n", name, name)
-		fmt.Printf("    /%s/v1/messages                → force %s (Anthropic)\n", name, name)
+		fmt.Printf("    /%s/v1/chat/completions     -> force %s\n", name, name)
+		fmt.Printf("    /%s/v1/images/generations   -> force %s\n", name, name)
+		fmt.Printf("    /%s/v1/videos/generations   -> force %s\n", name, name)
+		fmt.Printf("    /%s/v1/messages             -> force %s (Anthropic)\n", name, name)
 	}
 	fmt.Println()
 	fmt.Println("  Clients just change the base URL to switch providers:")
-	fmt.Printf("    base_url = \"http://localhost:%d\"           → auto\n", cfg.Server.Port)
+	fmt.Printf("    base_url = \"http://localhost:%d\"       -> auto\n", cfg.Server.Port)
 	for _, name := range registry.GetAllProviders() {
-		fmt.Printf("    base_url = \"http://localhost:%d/%s\"        → force %s\n", cfg.Server.Port, name, name)
+		fmt.Printf("    base_url = \"http://localhost:%d/%s\"    -> force %s\n", cfg.Server.Port, name, name)
 	}
 	fmt.Println()
 }

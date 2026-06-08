@@ -16,21 +16,28 @@ import (
 
 // ModelsHandler handles model listing requests
 type ModelsHandler struct {
-	registry *provider.Registry
-	logger   *zap.Logger
+	registry       *provider.Registry
+	logger         *zap.Logger
+	forcedProvider string // when non-empty, only list models for this provider
 }
 
 // NewModelsHandler creates a new models handler
-func NewModelsHandler(registry *provider.Registry, logger *zap.Logger) *ModelsHandler {
+func NewModelsHandler(registry *provider.Registry, logger *zap.Logger, forcedProvider string) *ModelsHandler {
 	return &ModelsHandler{
-		registry: registry,
-		logger:   logger,
+		registry:       registry,
+		logger:         logger,
+		forcedProvider: forcedProvider,
 	}
 }
 
 // HandleList handles GET /v1/models
 func (h *ModelsHandler) HandleList(c *gin.Context) {
-	models := h.registry.ListModels()
+	var models []model.ModelInfo
+	if h.forcedProvider != "" {
+		models = h.registry.ListModelsByProvider(h.forcedProvider)
+	} else {
+		models = h.registry.ListModels()
+	}
 
 	// If no models registered, return default list
 	if len(models) == 0 {

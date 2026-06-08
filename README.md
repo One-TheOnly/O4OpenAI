@@ -62,16 +62,43 @@
   - `agnes-video-v2.0` — 文生视频 / 图生视频 / 首尾帧
 - **文档**: https://agnes-ai.com/doc
 
+### Moark 模力方舟 (`moark`)
+
+- **Base URL**: `https://api.moark.com/v1`
+- **协议**: 高度兼容 OpenAI 官方接口（Chat / Images / Models），同时提供 Anthropic Messages 兼容、OpenAI Responses 兼容（由网关在 handler 层转译到 Chat）。
+- **认证**: `Authorization: Bearer <你的访问令牌>`，调用 `/v1/tokens/packages/balance` 可查询资源包余额。
+- **文档**: https://moark.com/docs/openapi/v1
+
+代表模型（完整列表以 `/v1/models` 返回为准）：
+  - **Chat / 文本**
+    - `DeepSeek-V3_1-Terminus`、`DeepSeek-V3`、`DeepSeek-R1`
+    - `Qwen2.5-72B-Instruct`、`Qwen3-235B-A22B-Instruct-2507`
+    - `GLM-4.6`、`GLM-4.7`、`GLM-4.7-Flash`
+    - `ERNIE-4.5-Turbo`、`Kimi-K2.5`、`Kimi-K2-Thinking`
+  - **文生图**
+    - `FLUX.1-dev`、`Qwen-Image`、`Kolors`、`LongCat-Image`
+  - **图生图**（multipart/form-data）
+    - `LongCat-Image-Edit`、`Qwen-Image-Edit`、`FLUX.1-Kontext-dev`
+  - **视频**（异步任务：`/async/videos/generations` + `/task/{task_id}` 轮询）
+    - `Wan2.1-T2V-14B`、`Wan2_2-I2V-A14B`、`HunyuanVideo-1.5`
+    - `CogVideoX-5b`、`ViduQ2-Pro`、`ViduQ3-Pro`
+
+实现要点：
+  - **Chat / 文本**：Moark 接受标准 OpenAI 请求体（含 `tools`、`response_format`、多模态 `image_url` 等），网关直接透传。
+  - **图生图**（`/v1/images/edits`）：Moark 要求 `multipart/form-data`。`image` 字段是 URL 时按文本字段提交；是 base64 / Data URI 时解码后作为文件字段提交。
+  - **视频**：调用 `POST /v1/async/videos/generations` 拿到 `task_id`，客户端轮询 `GET /v1/videos/{id}` 时网关转发到 `GET /v1/task/{task_id}`，根据 `output.url` 拼回 OpenAI 视频响应。
+  - **Anthropic Messages** 与 **OpenAI Responses**：无需在 provider 层处理，网关统一在 handler 层转译到 Chat 完成后透传。
+
 ### Provider 能力矩阵
 
-| 能力 | Agnes |
-|------|-------|
-| Chat | ✅ |
-| Image Generation | ✅ |
-| Image Edit (图生图) | ✅（调用 `/images/generations` 带 `image` 数组） |
-| Image Variation | ❌（Agnes 无此端点） |
-| Video Generation | ✅（异步任务） |
-| Mask Inpainting | ⚠️ Agnes 不支持 mask，已忽略 |
+| 能力 | Agnes | Moark |
+|------|:-----:|:-----:|
+| Chat | ✅ | ✅（OpenAI 透传） |
+| Image Generation | ✅ | ✅（OpenAI 透传） |
+| Image Edit (图生图) | ✅（调用 `/images/generations` 带 `image` 数组） | ✅（`/images/edits` multipart） |
+| Image Variation | ❌（Agnes 无此端点） | ❌（Moark 无此端点） |
+| Video Generation | ✅（异步任务） | ✅（异步任务） |
+| Mask Inpainting | ⚠️ Agnes 不支持 mask，已忽略 | ⚠️ 部分模型支持 mask |
 
 ## 快速开始
 

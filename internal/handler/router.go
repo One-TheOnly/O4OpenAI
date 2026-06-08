@@ -50,6 +50,13 @@ func SetupRouter(
 	for _, providerName := range registry.GetAllProviders() {
 		pathPrefix := "/" + providerName + "/v1"
 		registerAPIRoutes(engine.Group(pathPrefix), registry, base64Handler, logger, providerName)
+
+		// Health endpoint under each provider prefix so that clients using
+		// base_url = "http://gateway/moark" can still reach /moark/health.
+		engine.GET("/"+providerName+"/health", func(c *gin.Context) {
+			c.JSON(200, gin.H{"status": "ok", "provider": providerName})
+		})
+
 		logger.Info("Registered provider route", zap.String("prefix", pathPrefix))
 	}
 }
@@ -71,7 +78,7 @@ func registerAPIRoutes(rg *gin.RouterGroup, registry *provider.Registry, base64H
 	rg.GET("/videos/:id", videoHandler.HandleRetrieve)
 	rg.GET("/videos/:id/content", videoHandler.HandleDownloadContent)
 
-	modelsHandler := NewModelsHandler(registry, logger)
+	modelsHandler := NewModelsHandler(registry, logger, forcedProvider)
 	rg.GET("/models", modelsHandler.HandleList)
 	rg.GET("/models/:model", modelsHandler.HandleRetrieve)
 

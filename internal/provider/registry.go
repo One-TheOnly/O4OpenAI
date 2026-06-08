@@ -3,6 +3,7 @@ package provider
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/o4openai/internal/model"
 )
@@ -15,9 +16,9 @@ import (
 // Registry manages all provider instances and routes by model name
 type Registry struct {
 	mu         sync.RWMutex
-	providers  map[string]model.Provider   // keyed by provider name
-	modelMap   map[string]model.Provider   // keyed by external model name
-	modelNames map[string]string           // external model name -> provider name
+	providers  map[string]model.Provider    // keyed by provider name
+	modelMap   map[string]model.Provider    // keyed by external model name
+	modelNames map[string]string            // external model name -> provider name
 	modelInfos map[string][]model.ModelInfo // provider name -> model list
 }
 
@@ -42,9 +43,33 @@ func (r *Registry) Register(p model.Provider, configs []model.ModelMapping) erro
 	}
 
 	r.providers[name] = p
-	r.modelInfos[name] = p.SupportedModels()
 
-	// Build model name mappings
+	// Build the model info list by merging SupportedModels (rich metadata)
+	// with the resolved configs (may include models discovered via FetchModels
+	// or pinned in config.yaml that aren't in the hardcoded list).
+	baseInfos := p.SupportedModels()
+	infoMap := make(map[string]model.ModelInfo, len(baseInfos))
+	for _, m := range baseInfos {
+		infoMap[m.ID] = m
+	}
+	// Add any models from configs that aren't already in the base list.
+	for _, cfg := range configs {
+		if _, exists := infoMap[cfg.ExternalModel]; !exists {
+			infoMap[cfg.ExternalModel] = model.ModelInfo{
+				ID:      cfg.ExternalModel,
+				Object:  "model",
+				Created: time.Now().Unix(),
+				OwnedBy: name,
+			}
+		}
+	}
+	infos := make([]model.ModelInfo, 0, len(infoMap))
+	for _, m := range infoMap {
+		infos = append(infos, m)
+	}
+	r.modelInfos[name] = infos
+
+	// Build model name mappings (used for routing requests to the right provider)
 	for _, cfg := range configs {
 		r.modelMap[cfg.ExternalModel] = p
 		r.modelNames[cfg.ExternalModel] = name
@@ -87,6 +112,14 @@ func (r *Registry) ListModels() []model.ModelInfo {
 		all = append(all, infos...)
 	}
 	return all
+}
+
+// ListModelsByProvider returns models belonging to a specific provider.
+func (r *Registry) ListModelsByProvider(providerName string) []model.ModelInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.modelInfos[providerName]
 }
 
 // GetAllProviders returns all registered provider names

@@ -646,7 +646,11 @@
     <select id="providerPrefix">
       <option value="">自动路由</option>
       <option value="/agnes">agnes</option>
+      <option value="/moark">moark</option>
     </select>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <button type="button" id="refreshModelsBtn" onclick="refreshModelSelects()" title="从 /v1/models 重新拉取模型列表并刷新所有模型下拉">↻ 模型</button>
   </div>
 </div>
 
@@ -1777,6 +1781,55 @@ async function togglePoll() {
 }
 
 // ==================== Models ====================
+// refreshModelSelects fetches /v1/models and re-populates every model
+// dropdown on the page. Each dropdown is grouped by `owned_by` (provider)
+// so users can tell at a glance which provider owns a model. Falls back
+// to the static <option> set in the HTML if the request fails.
+async function refreshModelSelects() {
+  const btn = document.getElementById('refreshModelsBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(url('/v1/models'), { method: 'GET' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data || !Array.isArray(data.data) || data.data.length === 0) {
+      throw new Error('empty model list');
+    }
+
+    const groups = {};
+    const allIds = [];
+    for (const m of data.data) {
+      const provider = (m.owned_by || 'other').toString();
+      if (!groups[provider]) groups[provider] = [];
+      groups[provider].push(m);
+      allIds.push(m.id);
+    }
+
+    const selects = document.querySelectorAll('select[id$="-model"]');
+    selects.forEach(function (sel) {
+      const prev = sel.value;
+      sel.innerHTML = '';
+      for (const provider of Object.keys(groups).sort()) {
+        const og = document.createElement('optgroup');
+        og.label = provider;
+        for (const m of groups[provider]) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.id;
+          og.appendChild(opt);
+        }
+        sel.appendChild(og);
+      }
+      if (allIds.indexOf(prev) >= 0) sel.value = prev;
+    });
+    console.log('[refreshModelSelects] populated', selects.length, 'selects with', allIds.length, 'models');
+  } catch (e) {
+    console.warn('[refreshModelSelects] failed, keeping existing options:', e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 模型'; }
+  }
+}
+
 async function listModels() {
   const t0 = performance.now();
   try {
@@ -2530,6 +2583,9 @@ window.addEventListener('DOMContentLoaded', function() {
   lsLoadScenes();
   // Health check
   checkHealth();
+  // Populate model dropdowns from /v1/models so newly-added
+  // providers/models show up without editing this file.
+  refreshModelSelects();
 });
 
 // ==================== Responses API (non-stream) ====================

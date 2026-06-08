@@ -39,6 +39,12 @@ type Provider interface {
 	SupportsImageEdit() bool
 	SupportsImageVariation() bool
 	SupportsVideoGeneration() bool
+
+	// FetchModels optionally discovers the live list of model names from
+	// the upstream API (e.g. by calling GET /v1/models). Implementations
+	// that don't expose a model list endpoint should return an error;
+	// the registry will then fall back to SupportedModels().
+	FetchModels(ctx context.Context) ([]string, error)
 }
 
 // ProviderConfig holds the configuration for a provider
@@ -55,7 +61,7 @@ type ProviderConfig struct {
 
 // ModelMapping maps an external model name to the provider's internal model name
 type ModelMapping struct {
-	ExternalModel string `yaml:"external_model" json:"external_model"` // Name exposed to clients
-	ProviderModel string `yaml:"provider_model" json:"provider_model"` // Name sent to provider
-	Capabilities  []string `yaml:"capabilities" json:"capabilities"` // chat, image_gen, image_edit, image_var, video
+	ExternalModel string   `yaml:"external_model" json:"external_model"` // Name exposed to clients
+	ProviderModel string   `yaml:"provider_model" json:"provider_model"` // Name sent to provider
+	Capabilities  []string `yaml:"capabilities" json:"capabilities"`     // chat, image_gen, image_edit, image_var, video
 }

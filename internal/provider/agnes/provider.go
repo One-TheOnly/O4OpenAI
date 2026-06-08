@@ -120,6 +120,13 @@ func (p *Provider) SupportsImageVariation() bool { return false } // Not yet con
 // SupportsVideoGeneration reports video generation capability
 func (p *Provider) SupportsVideoGeneration() bool { return true }
 
+// FetchModels returns the list of model names the provider supports. Agnes
+// does not expose a /v1/models endpoint, so this returns an error and
+// callers are expected to fall back to SupportedModels().
+func (p *Provider) FetchModels(ctx context.Context) ([]string, error) {
+	return nil, fmt.Errorf("agnes: live model list not supported, use SupportedModels()")
+}
+
 // resolveModel maps external model name to Agnes model name
 func (p *Provider) resolveModel(externalModel string) string {
 	if mapped, ok := p.modelMappings[externalModel]; ok {
@@ -137,7 +144,10 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 		reqBody = bytes.NewReader(jsonData)
-		p.logger.Debug("Agnes request body", zap.String("body", string(jsonData)))
+		p.logger.Info("Agnes API request body",
+			zap.String("path", path),
+			zap.String("body", string(jsonData)),
+		)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, p.baseURL+path, reqBody)
@@ -158,7 +168,7 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 
 	p.logger.Info("Agnes API request",
 		zap.String("method", method),
-		zap.String("path", path),
+		zap.String("url", p.baseURL+path),
 	)
 
 	resp, err := p.httpClient.Do(req)
@@ -166,19 +176,13 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
+	// Error responses — log full body without truncation.
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		// Truncate body before logging to avoid leaking large upstream payloads
-		// (which may include request IDs, internal stack traces, etc.)
-		logBody := string(bodyBytes)
-		if len(logBody) > 200 {
-			logBody = logBody[:200] + "...(truncated)"
-		}
-		p.logger.Error("Agnes API error",
+		p.logger.Error("Agnes API error response",
 			zap.Int("status", resp.StatusCode),
-			zap.Int("body_len", len(bodyBytes)),
-			zap.String("body_preview", logBody),
+			zap.String("body", string(bodyBytes)),
 		)
 		return nil, &provider.ProviderError{
 			StatusCode: resp.StatusCode,
@@ -187,5 +191,27 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 		}
 	}
 
+	// Streaming (SSE) responses — don't buffer the body, just log metadata.
+	respCT := resp.Header.Get("Content-Type")
+	if strings.Contains(respCT, "text/event-stream") {
+		p.logger.Info("Agnes API response (stream)",
+			zap.Int("status", resp.StatusCode),
+			zap.String("content_type", respCT),
+		)
+		return resp, nil
+	}
+
+	// Non-streaming success — read body for logging, then restore it so
+	// callers can still decode.
+	bodyBytes, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	p.logger.Info("Agnes API response",
+		zap.Int("status", resp.StatusCode),
+		zap.String("body", string(bodyBytes)),
+	)
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	return resp, nil
 }

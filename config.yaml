@@ -34,3 +34,87 @@ providers:
 
       - external_model: "agnes-video-v2.0"
         provider_model: "agnes-video-v2.0"
+
+  moark:
+    base_url: "https://api.moark.com/v1"
+    enabled: true
+    models:
+#      # --- Chat / 文本生成 ---
+#      - external_model: "DeepSeek-V3_1-Terminus"
+#        provider_model: "DeepSeek-V3_1-Terminus"
+#        capabilities: [chat]
+#      - external_model: "DeepSeek-V3"
+#        provider_model: "DeepSeek-V3"
+#        capabilities: [chat]
+#      - external_model: "DeepSeek-R1"
+#        provider_model: "DeepSeek-R1"
+#        capabilities: [chat]
+#      - external_model: "Qwen2.5-72B-Instruct"
+#        provider_model: "Qwen2.5-72B-Instruct"
+#        capabilities: [chat]
+#      - external_model: "Qwen3-235B-A22B-Instruct-2507"
+#        provider_model: "Qwen3-235B-A22B-Instruct-2507"
+#        capabilities: [chat]
+#      - external_model: "GLM-4.6"
+#        provider_model: "GLM-4.6"
+#        capabilities: [chat]
+#      - external_model: "GLM-4.7"
+#        provider_model: "GLM-4.7"
+#        capabilities: [chat]
+#      - external_model: "GLM-4.7-Flash"
+#        provider_model: "GLM-4.7-Flash"
+#        capabilities: [chat]
+#      - external_model: "ERNIE-4.5-Turbo"
+#        provider_model: "ERNIE-4.5-Turbo"
+#        capabilities: [chat]
+#      - external_model: "Kimi-K2.5"
+#        provider_model: "Kimi-K2.5"
+#        capabilities: [chat]
+#      - external_model: "Kimi-K2-Thinking"
+#        provider_model: "Kimi-K2-Thinking"
+#        capabilities: [chat]
+#
+#      # --- 文生图 ---
+#      - external_model: "FLUX.1-dev"
+#        provider_model: "FLUX.1-dev"
+#        capabilities: [image_gen]
+#      - external_model: "Qwen-Image"
+#        provider_model: "Qwen-Image"
+#        capabilities: [image_gen]
+#      - external_model: "Kolors"
+#        provider_model: "Kolors"
+#        capabilities: [image_gen]
+#      - external_model: "LongCat-Image"
+#        provider_model: "LongCat-Image"
+#        capabilities: [image_gen]
+#
+#      # --- 图生图 ---
+#      - external_model: "LongCat-Image-Edit"
+#        provider_model: "LongCat-Image-Edit"
+#        capabilities: [image_edit]
+#      - external_model: "Qwen-Image-Edit"
+#        provider_model: "Qwen-Image-Edit"
+#        capabilities: [image_edit]
+#      - external_model: "FLUX.1-Kontext-dev"
+#        provider_model: "FLUX.1-Kontext-dev"
+#        capabilities: [image_edit]
+#
+#      # --- 视频生成（异步） ---
+#      - external_model: "Wan2.1-T2V-14B"
+#        provider_model: "Wan2.1-T2V-14B"
+#        capabilities: [video]
+#      - external_model: "Wan2_2-I2V-A14B"
+#        provider_model: "Wan2_2-I2V-A14B"
+#        capabilities: [video]
+#      - external_model: "HunyuanVideo-1.5"
+#        provider_model: "HunyuanVideo-1.5"
+#        capabilities: [video]
+#      - external_model: "CogVideoX-5b"
+#        provider_model: "CogVideoX-5b"
+#        capabilities: [video]
+#      - external_model: "ViduQ2-Pro"
+#        provider_model: "ViduQ2-Pro"
+#        capabilities: [video]
+#      - external_model: "ViduQ3-Pro"
+#        provider_model: "ViduQ3-Pro"
+#        capabilities: [video]
