@@ -69,13 +69,13 @@ func (p *Provider) VideoGeneration(ctx context.Context, req *model.VideoGenerati
 	return p.convertVideoResponse(&agnesResp, req.Model), nil
 }
 
-// VideoRetrieve fetches the status/result of a video task using the new recommended endpoint.
+// VideoRetrieve fetches the status/result of a video task.
 //
 // Endpoint: GET /agnesapi?video_id=<VIDEO_ID>&model_name=agnes-video-v2.0
 //
-// Note: We don't fall back to the legacy /v1/videos/{task_id} endpoint because
-// the ID we return to clients is a video_id (base64-encoded), not a task_id.
-// The legacy endpoint expects task_id format and can't look up our video_id.
+// Note: /agnesapi only responds once the task leaves the queue and starts rendering
+// (in_progress / completed). During the queued phase it returns 404 — this is treated
+// as "still queued" so the caller keeps polling rather than treating it as a hard failure.
 func (p *Provider) VideoRetrieve(ctx context.Context, videoID string) (*model.VideoResponse, error) {
 	// New recommended endpoint: GET /agnesapi?video_id=...
 	// Note: this endpoint is NOT under /v1, so we use the base host directly
@@ -110,6 +110,19 @@ func (p *Provider) VideoRetrieve(ctx context.Context, videoID string) (*model.Vi
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		// Agnes 的 /agnesapi 只有在任务离开队列、开始渲染后才注册。
+		// 任务排队期间该接口返回 404，是正常的瞬时状态而非"任务不存在"。
+		// 把它当作"仍在排队"返回，让客户端继续轮询；等任务进入 in_progress，
+		// /agnesapi 自然恢复 200。
+		p.logger.Info("Agnes video still queued (agnesapi 404 = not yet started); reporting queued",
+			zap.String("video_id", videoID))
+		return &model.VideoResponse{
+			ID:     videoID,
+			Object: "video",
+			Status: "queued",
+		}, nil
+	}
 	if resp.StatusCode >= 400 {
 		return nil, &provider.ProviderError{
 			StatusCode: resp.StatusCode,

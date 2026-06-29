@@ -38,7 +38,7 @@ providers:
 
   moark:
     base_url: "https://api.moark.com/v1"
-    enabled: true
+    enabled: false
     models:
 #      # --- Chat / 文本生成 ---
 #      - external_model: "DeepSeek-V3_1-Terminus"
